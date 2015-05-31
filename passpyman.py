@@ -17,7 +17,6 @@ from os.path        import join as pjoin
 from os.path        import isdir
 from os.path        import isfile
 
-PASS_FILE   = os.path.abspath(os.path.join(os.path.dirname(__file__), 'passes.ini'))
 HOME_DIR    = os.getenv('HOME')
 CONFIG_DIR  = pjoin(HOME_DIR, '.config', 'passpyman')
 CONFIG_FILE = pjoin(CONFIG_DIR, 'passpyman.ini')
