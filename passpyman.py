@@ -30,6 +30,32 @@ def error(*msg):
     info(*msg)
     sys.exit(1)
 
+def asint(int_str, default=None):
+    try:
+        return int(int_str)
+    except:
+        return default
+
+def choose(max=None, min=1):
+    assert max, 'missing max'
+    assert isinstance(min, (int, long)), 'min must be int'
+    assert isinstance(max, (int, long)), 'max must be int'
+    assert max >= min, 'max must be >= min'
+    inp = ''
+    while not min <= inp <= max:
+        inp = asint(raw_input('[%s-%s]: ' % (min, max)))
+
+    return inp
+
+def choose_from_list(choose_list=[]):
+    list_len = len(choose_list)
+    list_str_len = len(str(list_len))
+    tpl = '%%-%ss %%s' % list_str_len
+    for i, x in enumerate(choose_list):
+        info(tpl % (i+1, x))
+
+    return choose_list[choose(list_len) - 1]
+
 def setup():
     assert HOME_DIR, 'missing HOME_DIR'
     sect = 'Config'
