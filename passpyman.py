@@ -1,31 +1,39 @@
-#! /bin/env python3
+#! /bin/env python2
+# -*- coding: utf-8 -*-
 
 import os
-import io
+import re
 import sys
 import string
 import random
 import argparse
-import configparser
 import pprint
 
-from os.path import join as pjoin
-from os.path import isdir
-from os.path import isfile
+from StringIO       import StringIO
+from ConfigParser   import SafeConfigParser
+from subprocess     import call, Popen, PIPE
+from getpass        import getpass
+from os.path        import join as pjoin
+from os.path        import isdir
+from os.path        import isfile
 
-# output = io.StringIO()
-# output.write('First line.\n')
-# contents = output.getvalue()
 PASS_FILE   = os.path.abspath(os.path.join(os.path.dirname(__file__), 'passes.ini'))
 HOME_DIR    = os.getenv('HOME')
 CONFIG_DIR  = pjoin(HOME_DIR, '.config', 'passpyman')
 CONFIG_FILE = pjoin(CONFIG_DIR, 'passpyman.ini')
 
+GPG_SECRET  = "123qwe"
+
 def info(*msg):
-    print(*msg)
+    print ' '.join(msg)
+
+def error(*msg):
+    info(*msg)
+    sys.exit(1)
 
 def setup():
     assert HOME_DIR, 'missing HOME_DIR'
+    sect = 'Config'
     if not isdir(CONFIG_DIR):
         checked_parts = ['/']
         path_parts = [d for d in CONFIG_DIR.split(os.path.sep) if d]
@@ -38,24 +46,108 @@ def setup():
                 os.mkdir(path)
 
     if not isfile(CONFIG_FILE):
-        conf = configparser.ConfigParser()
-        conf.add_section('Config')
-        conf.set('Config', 'password_file', 'pass.gpg')
+        conf = SafeConfigParser()
+        conf.add_section(sect)
+        conf.set(sect, 'password_file', 'pass.gpg')
         with open(CONFIG_FILE, 'w') as fp:
             conf.write(fp)
 
-def get_passes():
-    cp = configparser.ConfigParser()
-    cp.read(PASS_FILE)
+def test_which(cmd):
+    "Test if proc is available."
+    if call('which %s' % cmd, shell=True, stdout=PIPE, stderr=PIPE):
+        error('command not found:', cmd)
 
-    return sorted(cp.sections())
+def gpg_encrypt(txt, sec):
+    test_which('gpg')
+    gpg = Popen(['gpg', '--batch', '-c', '--passphrase', sec, '-o', '-'], stdin=PIPE, stdout=PIPE, stderr=PIPE)
+    out = gpg.communicate(input=txt)[0]
+    # out = gpg.communicate(input=txt.encode('ascii'))[0]
+    return out
+
+def gpg_decrypt(txt, sec):
+    test_which('gpg')
+    gpg = Popen(['gpg', '--batch', '-d', '--passphrase', sec, '-o', '-'], stdin=PIPE, stdout=PIPE, stderr=PIPE)
+    out = gpg.communicate(input=txt)[0]
+    if gpg.returncode != 0:
+        raise ValueError("gpg failed")
+    return out
+    # return out.decode('ascii')
+
+def get_config():
+    cp = SafeConfigParser()
+    cp.read(CONFIG_FILE)
+
+    return cp
+
+def get_password_file_name():
+    sect = 'Config'
+    conf = get_config()
+    if not sect in conf.sections():
+        return None
+
+    if not 'password_file' in conf.options(sect):
+        return None
+
+    pass_file_name = conf.get(sect, 'password_file')
+
+    if pass_file_name:
+        return pjoin(CONFIG_DIR, pass_file_name)
+
+    else:
+        return None
+
+def write_password_file(cp):
+    pass_file = get_password_file_name()
+    buf = StringIO()
+    cp.write(buf)
+    buf.flush()
+
+    with open(pass_file, 'w') as fd:
+        # fd.write(buf.getvalue())
+        fd.write(gpg_encrypt(buf.getvalue()), GPG_SECRET)
+
+def read_password_file():
+    pass_file = get_password_file_name()
+
+    assert pass_file, 'no pass file'
+
+    if not isfile(pass_file):
+        return ''
+
+    with open(pass_file, 'r') as fd:
+        # return fd.read()
+        return gpg_decrypt(fd.read(), GPG_SECRET)
+
+def get_passwords():
+    pass_txt = read_password_file()
+    buf = StringIO(pass_txt)
+    cp = SafeConfigParser()
+    cp.readfp(buf)
+    buf.close()
+
+    return cp
+
+def get_password_sections():
+    return sorted(get_passwords().sections())
+
+def add_pass(section):
+    pw = get_passwords()
+    assert section not in pw.sections(), 'section already exists: %r' % section
+
+    user = raw_input('Username: ')
+    passwd = getpass('Password: ')
+    assert passwd, 'no password given'
+    pw.add_section(section)
+    pw.set(section, 'user', user)
+    pw.set(section, 'pass', passwd)
+    write_password_file(pw)
 
 def gen_secret(len=15):
-    "Return good random string of A-Za-z0-9 which never starts with a digit."
+    "Return good random string which never starts with a digit."
     required_groups = (string.ascii_lowercase,
                        string.ascii_uppercase,
                        string.digits,
-                       '_-#~+?')
+                       '._-#~+?')
 
     char_list = list(''.join(required_groups))
     random.shuffle(char_list)
@@ -67,7 +159,12 @@ def gen_secret(len=15):
             for c in rg:
                 group_count[rg] += s.count(c)
 
-        return all(2 <= v for k, v in group_count.items())
+        return (# at least 2 chars of each group
+                all(2 <= v for k, v in group_count.items())
+                # no char followed by itself
+                and not re.search(r'(.)\1', s)
+                # no char more than twice in string
+                and not re.search(r'(.).*\1.*\1', s))
 
     s = ''
     while not s or s[:1] not in string.ascii_lowercase or not test_occurence(s):
@@ -84,16 +181,25 @@ if '__main__' == __name__:
     ga = group.add_argument
 
     ga('-p', '--password', action='store_true', help='generate password')
+    # ga('-p', '--password', action='store_true', nargs='?', default=None, help='generate password')
     ga('-l', '--list-sections', action='store_true', help='list all section entries')
+    ga('-a', '--add', dest='section', help='add new section')
     ga('-s', '--setup', action='store_true', help='initial setup')
 
     args = parser.parse_args()
+    print args
 
     if args.password:
-        print(gen_secret())
+        print gen_secret()
+
     elif args.list_sections:
-        print(get_passes())
+        print '\n'.join(get_password_sections())
+
+    elif args.section:
+        add_pass(args.section)
+
     elif args.setup:
         setup()
+
     else:
         parser.print_help()
