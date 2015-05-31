@@ -205,25 +205,33 @@ if '__main__' == __name__:
     pa = parser.add_argument
     ga = group.add_argument
 
-    ga('-p', '--password', action='store_true', help='generate password')
-    # ga('-p', '--password', action='store_true', nargs='?', default=None, help='generate password')
-    ga('-l', '--list-sections', action='store_true', help='list all section entries')
-    ga('-a', '--add', dest='section', help='add new section')
-    ga('-s', '--setup', action='store_true', help='initial setup')
+    pa('action', choices=['add', 'get', 'set', 'pass', 'setup'], help='main action')
+    ga('-s', '--section', help='name of the section')
+    # ga('-p', '--password', action='store_true', help='generate password')
+    # # ga('-p', '--password', action='store_true', nargs='?', default=None, help='generate password')
+    # ga('-l', '--list-sections', action='store_true', help='list all section entries')
+    # ga('-a', '--add', dest='section', help='add new section')
+    # ga('-s', '--setup', action='store_true', help='initial setup')
 
     args = parser.parse_args()
     print args
 
-    if args.password:
+    if 'add' == args.action:
+        print 'action:', args.action
+
+    elif 'get' == args.action:
+        print 'action:', args.action
+        if not args.section:
+            info('\n'.join(get_password_sections()))
+
+    elif 'set' == args.action:
+        print 'action:', args.action
+
+    elif 'pass' == args.action:
+        print 'action:', args.action
         print gen_secret()
 
-    elif args.list_sections:
-        print '\n'.join(get_password_sections())
-
-    elif args.section:
-        add_pass(args.section)
-
-    elif args.setup:
+    elif 'setup' == args.action:
         setup()
 
     else:
