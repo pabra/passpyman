@@ -82,11 +82,13 @@ def test_which(cmd):
     if call('which %s' % cmd, shell=True, stdout=PIPE, stderr=PIPE):
         error('command not found:', cmd)
 
+def get_gpg_secret():
+    return GPG_SECRET
+
 def gpg_encrypt(txt, sec):
     test_which('gpg')
     gpg = Popen(['gpg', '--batch', '-c', '--passphrase', sec, '-o', '-'], stdin=PIPE, stdout=PIPE, stderr=PIPE)
     out = gpg.communicate(input=txt)[0]
-    # out = gpg.communicate(input=txt.encode('ascii'))[0]
     return out
 
 def gpg_decrypt(txt, sec):
@@ -96,7 +98,6 @@ def gpg_decrypt(txt, sec):
     if gpg.returncode != 0:
         raise ValueError("gpg failed")
     return out
-    # return out.decode('ascii')
 
 def get_config():
     cp = SafeConfigParser()
@@ -128,8 +129,7 @@ def write_password_file(cp):
     buf.flush()
 
     with open(pass_file, 'w') as fd:
-        # fd.write(buf.getvalue())
-        fd.write(gpg_encrypt(buf.getvalue()), GPG_SECRET)
+        fd.write(gpg_encrypt(buf.getvalue(), get_gpg_secret()))
 
 def read_password_file():
     pass_file = get_password_file_name()
@@ -140,8 +140,7 @@ def read_password_file():
         return ''
 
     with open(pass_file, 'r') as fd:
-        # return fd.read()
-        return gpg_decrypt(fd.read(), GPG_SECRET)
+        return gpg_decrypt(fd.read(), get_gpg_secret())
 
 def get_passwords():
     pass_txt = read_password_file()
@@ -155,7 +154,9 @@ def get_passwords():
 def get_password_sections():
     return sorted(get_passwords().sections())
 
-def add_pass(section):
+def add_pass(section=None):
+    if not section:
+        section = raw_input('Section: ')
     pw = get_passwords()
     assert section not in pw.sections(), 'section already exists: %r' % section
 
@@ -166,6 +167,15 @@ def add_pass(section):
     pw.set(section, 'user', user)
     pw.set(section, 'pass', passwd)
     write_password_file(pw)
+
+def get_section_content(section):
+    pw = get_passwords()
+    assert section in pw.sections(), 'section does not exist: %r' % section
+
+    return dict(pw.items(section, raw=True))
+
+def print_section_content(section):
+    pprint.pprint(get_section_content(section))
 
 def gen_secret(len=15):
     "Return good random string which never starts with a digit."
@@ -200,13 +210,15 @@ def gen_secret(len=15):
 
 if '__main__' == __name__:
     parser = argparse.ArgumentParser()
-    group = parser.add_mutually_exclusive_group()
+    # group = parser.add_mutually_exclusive_group()
 
     pa = parser.add_argument
-    ga = group.add_argument
+    # ga = group.add_argument
 
     pa('action', choices=['add', 'get', 'set', 'pass', 'setup'], help='main action')
-    ga('-s', '--section', help='name of the section')
+    pa('-s', '--section', help='name of the section')
+    pa('-u', '--user', help='user name')
+    pa('-p', '--pass', help='password')
     # ga('-p', '--password', action='store_true', help='generate password')
     # # ga('-p', '--password', action='store_true', nargs='?', default=None, help='generate password')
     # ga('-l', '--list-sections', action='store_true', help='list all section entries')
@@ -218,11 +230,14 @@ if '__main__' == __name__:
 
     if 'add' == args.action:
         print 'action:', args.action
+        add_pass(section=args.section)
 
     elif 'get' == args.action:
         print 'action:', args.action
         if not args.section:
             info('\n'.join(get_password_sections()))
+        else:
+            print_section_content(args.section)
 
     elif 'set' == args.action:
         print 'action:', args.action
